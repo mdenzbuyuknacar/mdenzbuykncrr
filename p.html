@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>Zaman Gecikmeli Hareket İzi</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: black;
+        }
+        canvas {
+            display: block;
+            transform: scaleX(-1);
+        }
+    </style>
+</head>
+<body>
+
+<video id="video" autoplay playsinline style="display:none;"></video>
+<canvas id="canvas"></canvas>
+
+<script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    function tamEkranYap() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+
+    window.addEventListener('resize', tamEkranYap);
+    tamEkranYap();
+
+    // --- ZAMAN GECİKMESİ AYARLARI ---
+    const GECIKME_SANIYESI = 4;
+    const FPS = 30; // Tahmini saniyedeki kare hızı
+    const MAX_KARE_SAYISI = GECIKME_SANIYESI * FPS;
+    const kareHafizasi = [];
+
+    // Belleğin zorlanmaması için önceden boş tuvaller oluşturuyoruz
+    for(let i = 0; i < MAX_KARE_SAYISI; i++) {
+        kareHafizasi.push(document.createElement('canvas'));
+    }
+    
+    let gecerliKareIndex = 0;
+    let hafizaDoluMu = false; // İlk 4 saniye doldu mu kontrolü
+
+    navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } })
+        .then(stream => {
+            video.srcObject = stream;
+        })
+        .catch(err => {
+            console.error("Kamera hatası:", err);
+            alert("Kameraya erişilemedi.");
+        });
+
+    video.addEventListener('loadedmetadata', () => {
+        cizimYap();
+    });
+
+    function cizimYap() {
+        const videoOrani = video.videoWidth / video.videoHeight;
+        const ekranOrani = canvas.width / canvas.height;
+        let cizimGenisligi, cizimYuksekligi, x, y;
+
+        if (videoOrani > ekranOrani) {
+            cizimYuksekligi = canvas.height;
+            cizimGenisligi = canvas.height * videoOrani;
+            x = (canvas.width - cizimGenisligi) / 2;
+            y = 0;
+        } else {
+            cizimGenisligi = canvas.width;
+            cizimYuksekligi = canvas.width / videoOrani;
+            x = 0;
+            y = (canvas.height - cizimYuksekligi) / 2;
+        }
+
+        // 1. ŞU ANKİ GÖRÜNTÜYÜ HAFIZAYA YAZ
+        const bufferCanvas = kareHafizasi[gecerliKareIndex];
+        if (bufferCanvas.width !== video.videoWidth) {
+            bufferCanvas.width = video.videoWidth;
+            bufferCanvas.height = video.videoHeight;
+        }
+        const bCtx = bufferCanvas.getContext('2d');
+        bCtx.drawImage(video, 0, 0); // O anki kamerayı hafızaya kopyala
+
+        // 2. 4 SANİYE ÖNCEKİ KAREYİ HESAPLA
+        let gecikmeliIndex = gecerliKareIndex + 1;
+        if (gecikmeliIndex >= MAX_KARE_SAYISI) {
+            gecikmeliIndex = 0;
+            hafizaDoluMu = true; // 4 saniyelik döngü tamamlandı
+        }
+
+        // --- EKRANA ÇİZİM BÖLÜMÜ (KATMANLAŞMA) ---
+
+        // KATMAN 1: ŞU ANKİ CANLI HALİN (Çok silik ve net)
+        // Sadece nerede olduğunu hissetmen için eklendi.
+        ctx.globalAlpha = 0.02; 
+        ctx.filter = 'none';
+        ctx.drawImage(video, x, y, cizimGenisligi, cizimYuksekligi);
+
+        // KATMAN 2: 4 SANİYE ÖNCEKİ HALİN (Daha belirgin ve bulanık)
+        ctx.globalAlpha = 0.1;
+        ctx.filter = 'blur(6px)';
+
+        if (hafizaDoluMu) {
+            // 4 saniye dolduysa, geçmişteki görüntüyü çiz
+            const gecikmeliCanvas = kareHafizasi[gecikmeliIndex];
+            ctx.drawImage(gecikmeliCanvas, x, y, cizimGenisligi, cizimYuksekligi);
+        } else {
+            // İlk 4 saniye dolana kadar canlı videoyu çizerek bekle
+            ctx.drawImage(video, x, y, cizimGenisligi, cizimYuksekligi);
+        }
+
+        ctx.filter = 'none'; // Filtreyi sıfırla
+
+        // Hafıza indeksini bir sonraki kare için ilerlet
+        gecerliKareIndex++;
+        if (gecerliKareIndex >= MAX_KARE_SAYISI) {
+            gecerliKareIndex = 0;
+        }
+
+        requestAnimationFrame(cizimYap);
+    }
+</script>
+
+</body>
+</html>
